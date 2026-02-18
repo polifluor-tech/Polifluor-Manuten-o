@@ -107,10 +107,17 @@ export const SchedulePage: React.FC = () => {
             <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg border border-slate-100 dark:border-gray-700 flex flex-col gap-4">
                 <div className="flex flex-wrap justify-between items-center gap-4">
                     <h1 className="text-xl font-black text-slate-800 dark:text-white uppercase tracking-tighter">Cronograma Mestre</h1>
-                    <div className="flex items-center gap-2 bg-slate-100 dark:bg-gray-900 p-1 rounded-xl">
-                        <button onClick={() => setViewYear(y => y - 1)} className="p-2 rounded-lg hover:bg-white dark:hover:bg-gray-700"><ChevronLeftIcon className="w-5 h-5 text-slate-500"/></button>
-                        <span className="font-black text-lg text-slate-800 dark:text-white w-24 text-center">{viewYear}</span>
-                        <button onClick={() => setViewYear(y => y + 1)} className="p-2 rounded-lg hover:bg-white dark:hover:bg-gray-700"><ChevronRightIcon className="w-5 h-5 text-slate-500"/></button>
+                    
+                    <div className="flex items-center gap-3">
+                        <button onClick={handleExportPdf} className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-colors shadow-sm text-xs uppercase tracking-widest">
+                            <DownloadIcon className="w-4 h-4"/> Exportar PDF
+                        </button>
+
+                        <div className="flex items-center gap-2 bg-slate-100 dark:bg-gray-900 p-1 rounded-xl">
+                            <button onClick={() => setViewYear(y => y - 1)} className="p-2 rounded-lg hover:bg-white dark:hover:bg-gray-700"><ChevronLeftIcon className="w-5 h-5 text-slate-500"/></button>
+                            <span className="font-black text-lg text-slate-800 dark:text-white w-24 text-center">{viewYear}</span>
+                            <button onClick={() => setViewYear(y => y + 1)} className="p-2 rounded-lg hover:bg-white dark:hover:bg-gray-700"><ChevronRightIcon className="w-5 h-5 text-slate-500"/></button>
+                        </div>
                     </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

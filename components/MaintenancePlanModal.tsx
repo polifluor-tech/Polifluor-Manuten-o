@@ -93,6 +93,9 @@ export const MaintenancePlanModal: React.FC<MaintenancePlanModalProps> = ({
     const [equipmentTypeId, setEquipmentTypeId] = useState('');
     const [targetEquipmentIds, setTargetEquipmentIds] = useState<string[]>([]);
 
+    // Filtra apenas tipos ativos para novos planos
+    const activeTypes = equipmentTypes.filter(t => t.active !== false || (existingPlan && t.id === existingPlan.equipmentTypeId));
+
     useEffect(() => {
         if (existingPlan) {
             setDescription(existingPlan.description);
@@ -227,7 +230,7 @@ export const MaintenancePlanModal: React.FC<MaintenancePlanModalProps> = ({
                              {targetType === 'byType' ? (
                                 <select value={equipmentTypeId} onChange={e => setEquipmentTypeId(e.target.value)} required={targetType === 'byType'} className="w-full mt-2 form-input font-bold text-sm">
                                     <option value="">Selecione uma família de ativos...</option>
-                                    {equipmentTypes.map(t => <option key={t.id} value={t.id}>{t.description}</option>)}
+                                    {activeTypes.map(t => <option key={t.id} value={t.id}>{t.description}</option>)}
                                 </select>
                              ) : (
                                  <div className="mt-2 p-2 bg-white border border-slate-200 rounded-lg max-h-24 overflow-y-auto custom-scrollbar">

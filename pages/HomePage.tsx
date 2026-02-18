@@ -1,8 +1,10 @@
 
+
+
 import React, { useMemo } from 'react';
 import { useAppContext } from '../contexts/AppContext';
 import { useDataContext } from '../contexts/DataContext';
-import { MaintenanceStatus, MaintenanceType } from '../types';
+import { MaintenanceStatus, MaintenanceType, WorkOrder } from '../types';
 import { ClipboardListIcon, ScheduleIcon, ChartIcon, ShieldCheckIcon, ExclamationTriangleIcon, PlusIcon, WrenchIcon, CheckCircleIcon, ClockIcon } from '../components/icons';
 
 const PolifluorLogo = () => (
@@ -166,9 +168,52 @@ const MaintainerDashboard: React.FC = () => {
     );
 };
 
+const CriticalAlerts: React.FC<{ criticalOrders: WorkOrder[], onOpenOrder: (order: WorkOrder) => void }> = ({ criticalOrders, onOpenOrder }) => {
+    const { equipmentData } = useDataContext();
+
+    if (criticalOrders.length === 0) {
+        return null;
+    }
+
+    return (
+        <div className="mt-12">
+            <h2 className="font-black text-rose-600 uppercase tracking-tight text-lg mb-4">Alertas Críticos (Máquina Parada)</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {criticalOrders.map(order => {
+                    const equipment = equipmentData.find(e => e.id === order.equipmentId);
+                    
+                    let displayName = equipment?.name || order.equipmentId;
+                    const displayDescription = `OS #${order.id}`;
+
+                    // Lógica para extrair o nome do ativo predial da descrição
+                    if (order.equipmentId === 'ATIVO_PREDIAL_GENERICO' && order.description) {
+                        const match = order.description.match(/\[Ativo: (.*?)\]/);
+                        if (match && match[1]) {
+                            displayName = match[1]; // Ex: "SPEED DOME"
+                        }
+                    }
+
+                    return (
+                        <div key={order.id} onClick={() => onOpenOrder(order)} className="bg-rose-50 p-5 rounded-2xl border-2 border-rose-200 hover:shadow-lg transition-all cursor-pointer flex items-center gap-4">
+                            <div className="p-3 bg-rose-600 text-white rounded-full animate-pulse">
+                                <ExclamationTriangleIcon className="w-6 h-6"/>
+                            </div>
+                            <div>
+                                <p className="font-black text-rose-800 uppercase">{displayName}</p>
+                                <p className="text-xs text-rose-600 font-bold">{displayDescription}</p>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+};
+
+
 // --- HOME PAGE PRINCIPAL (ADMIN/GESTOR) ---
 export const HomePage: React.FC = () => {
-    const { setCurrentPage, userRole } = useAppContext();
+    const { setCurrentPage, userRole, setEditingOrder, setIsOSModalOpen } = useAppContext();
     const { workOrders } = useDataContext();
 
     // Se for manutencista, mostra o painel específico
@@ -180,8 +225,14 @@ export const HomePage: React.FC = () => {
     const stats = useMemo(() => {
         const delayed = workOrders.filter(o => o.status === MaintenanceStatus.Delayed).length;
         const pending = workOrders.filter(o => o.status === MaintenanceStatus.Scheduled).length;
-        return { delayed, pending };
+        const critical = workOrders.filter(o => o.machineStopped && o.status !== MaintenanceStatus.Executed);
+        return { delayed, pending, critical };
     }, [workOrders]);
+
+    const handleOpenCriticalOrder = (order: WorkOrder) => {
+        setEditingOrder(order);
+        setIsOSModalOpen(true);
+    };
 
     return (
         <div className="max-w-7xl mx-auto p-8 animate-fade-in">
@@ -216,6 +267,8 @@ export const HomePage: React.FC = () => {
                     <p className="text-[10px] text-slate-500 font-bold uppercase">Requisitos 8.5.1.5</p>
                 </div>
             </div>
+            
+            <CriticalAlerts criticalOrders={stats.critical} onOpenOrder={handleOpenCriticalOrder} />
         </div>
     );
 };

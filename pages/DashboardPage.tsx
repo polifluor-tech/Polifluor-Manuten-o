@@ -13,10 +13,12 @@ import {
     ClockIcon,
     WrenchIcon,
     ChartIcon,
-    ArrowRightIcon
+    ArrowRightIcon,
+    InfoIcon
 } from '../components/icons';
 import { MaintenanceType, WorkOrder } from '../types';
-import { TrendChart } from '../components/TrendChart'; // Novo Componente
+import { TrendChart } from '../components/TrendChart';
+import { ReliabilityInfoModal } from '../components/ReliabilityInfoModal';
 
 type CriticidadeFilter = 'Criticos' | 'Nao-Criticos';
 
@@ -31,6 +33,7 @@ export const DashboardPage: React.FC = () => {
 
     const [selectedMonth, setSelectedMonth] = useState<number | 'Ano'>(new Date().getMonth());
     const [filterCrit, setFilterCrit] = useState<CriticidadeFilter>('Criticos');
+    const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
 
     const dashboardData: DashboardItem[] = useMemo(() => {
         const start = selectedMonth === 'Ano' ? '2026-01-01' : `2026-${(Number(selectedMonth) + 1).toString().padStart(2, '0')}-01`;
@@ -39,7 +42,6 @@ export const DashboardPage: React.FC = () => {
         const ids = equipmentData.map(e => e.id);
         const metrics = calculate(equipmentData, workOrders, ids, start, end, filterCrit);
         
-        // Lógica de Recorrência de Falhas
         return metrics.map(metric => {
             const relevantFailures = workOrders.filter(wo => 
                 wo.equipmentId === metric.equipmentId &&
@@ -66,38 +68,53 @@ export const DashboardPage: React.FC = () => {
 
     }, [equipmentData, workOrders, calculate, selectedMonth, filterCrit]);
 
-    const totals = useMemo(() => {
-        return dashboardData.reduce((acc, curr) => ({
-            mttr: acc.mttr + curr.mttr,
-            failures: acc.failures + curr.totalFailures,
-            availability: acc.availability + curr.availability,
-            globalAvailability: acc.globalAvailability + curr.globalAvailability,
-            downtime: acc.downtime + (curr.totalCorrectiveHours)
-        }), { mttr: 0, failures: 0, availability: 0, globalAvailability: 0, downtime: 0 });
+    const globalKpis = useMemo(() => {
+        if (dashboardData.length === 0) {
+            return { mttr: 0, availability: 100, operationalAvailability: 100, failures: 0 };
+        }
+
+        const totalGrossHours = dashboardData.reduce((sum, item) => sum + item.totalGrossHours, 0);
+        const totalCorrectiveHours = dashboardData.reduce((sum, item) => sum + item.totalCorrectiveHours, 0);
+        const totalDowntimeHours = dashboardData.reduce((sum, item) => sum + item.totalDowntimeHours, 0);
+        const totalFailures = dashboardData.reduce((sum, item) => sum + item.totalFailures, 0);
+
+        const mttr = totalFailures > 0 ? totalCorrectiveHours / totalFailures : 0;
+        
+        const inherentUptime = Math.max(0, totalGrossHours - totalCorrectiveHours);
+        const availability = totalGrossHours > 0 ? (inherentUptime / totalGrossHours) * 100 : 100;
+
+        const operationalUptime = Math.max(0, totalGrossHours - totalDowntimeHours);
+        const operationalAvailability = totalGrossHours > 0 ? (operationalUptime / totalGrossHours) * 100 : 100;
+        
+        return {
+            mttr,
+            availability,
+            operationalAvailability,
+            failures: totalFailures,
+        };
     }, [dashboardData]);
 
-    const avgMttr = totals.mttr / (dashboardData.length || 1);
-    const avgAvailability = totals.availability / (dashboardData.length || 1);
-    const avgOperationalAvailability = totals.globalAvailability / (dashboardData.length || 1);
-
-    // DADOS PARA O GRÁFICO DE TENDÊNCIA (Evolução MTBF Global)
     const trendData = useMemo(() => {
-        // Agrupa os dados mensais de todos os equipamentos
         return MONTHS.map((monthName, idx) => {
-            let monthlyMtbfSum = 0;
-            let count = 0;
+            let totalGross = 0;
+            let totalCorrective = 0;
             dashboardData.forEach(item => {
                 const monthMetric = item.monthlyHistory.find(m => m.monthIndex === idx);
-                if (monthMetric && monthMetric.mtbf !== null) {
-                    monthlyMtbfSum += monthMetric.mtbf;
-                    count++;
+                if (monthMetric) {
+                    const firstDayOfMonth = new Date(new Date().getFullYear(), idx, 1);
+                    const lastDayOfMonth = new Date(new Date().getFullYear(), idx + 1, 0);
+                    // This part needs adjustment if we want per-machine hours. For now, let's assume a global MTBF avg.
                 }
             });
-            // Média simples do MTBF dos equipamentos no mês
-            const avg = count > 0 ? monthlyMtbfSum / count : 0;
-            return { label: monthName.substring(0, 3), value: Math.round(avg) };
+            
+            const monthData = dashboardData.flatMap(d => d.monthlyHistory.filter(h => h.monthIndex === idx));
+            const validMtbf = monthData.filter(m => m.mtbf != null).map(m => m.mtbf as number);
+            const avgMtbf = validMtbf.length > 0 ? validMtbf.reduce((a, b) => a + b, 0) / validMtbf.length : 0;
+
+            return { label: monthName.substring(0, 3), value: Math.round(avgMtbf) };
         });
     }, [dashboardData]);
+
 
     const handleInspectOS = (id: string) => {
         setCurrentPage('work_orders');
@@ -105,14 +122,23 @@ export const DashboardPage: React.FC = () => {
 
     useEffect(() => {
         logActivity({
-            action_type: 'UPDATE_STATUS',
+            action_type: 'VIEW',
             description: `Dashboard filtrado: Mês ${selectedMonth}, Categoria: ${filterCrit}`
         });
     }, [selectedMonth, filterCrit, logActivity]);
 
     return (
         <div className="space-y-6 animate-fade-in pb-12">
-            <Header title="Termômetro de Confiabilidade" subtitle="Monitoramento tático de ativos. Janela produtiva Seg-Sex (10h/dia)." />
+            <Header 
+                title="Termômetro de Confiabilidade" 
+                subtitle="Monitoramento tático de ativos. Janela produtiva Seg-Sex (10h/dia)."
+                actions={
+                    <button onClick={() => setIsInfoModalOpen(true)} className="flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-800 transition-colors">
+                        <InfoIcon className="w-4 h-4" />
+                        O que são estes KPIs?
+                    </button>
+                }
+            />
 
             <div className="bg-white dark:bg-gray-800 p-2 rounded-2xl shadow-lg border border-slate-100 dark:border-gray-700 flex flex-wrap items-center gap-2">
                 <div className="flex bg-slate-100 dark:bg-gray-900 p-1 rounded-xl">
@@ -129,24 +155,21 @@ export const DashboardPage: React.FC = () => {
                 </div>
             </div>
 
-            {/* SEÇÃO DE KPI E GRÁFICO LADO A LADO */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 
-                {/* KPIs (Ocupa 2 colunas) */}
                 <div className="lg:col-span-2 grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-3xl border border-slate-100 shadow-sm"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Disponibilidade Operacional</p><div className="flex items-end gap-2"><span className={`text-3xl font-black ${avgOperationalAvailability > 95 ? 'text-emerald-600' : 'text-amber-500'}`}>{avgOperationalAvailability.toFixed(1)}%</span><ShieldCheckIcon className="w-5 h-5 text-emerald-500 mb-1" /></div></div>
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-3xl border border-slate-100 shadow-sm"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Disponibilidade Inerente</p><div className="flex items-end gap-2"><span className={`text-3xl font-black ${avgAvailability > 95 ? 'text-emerald-600' : 'text-amber-500'}`}>{avgAvailability.toFixed(1)}%</span></div></div>
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-3xl border border-slate-100 shadow-sm"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">MTTR (Médio)</p><div className="flex items-end gap-2"><span className={`text-3xl font-black ${avgMttr > 1 ? 'text-rose-600' : 'text-emerald-600'}`}>{avgMttr.toFixed(1)}h</span></div></div>
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-3xl border border-slate-100 shadow-sm"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total de Falhas</p><div className="flex items-end gap-2"><span className="text-3xl font-black text-slate-800 dark:text-white">{totals.failures}</span><WrenchIcon className="w-5 h-5 text-blue-500 mb-1" /></div></div>
+                    <div title="Mede a performance real. Considera TODAS as paradas (Corretiva, Preventiva, Melhoria, etc)." className="bg-white dark:bg-gray-800 p-6 rounded-3xl border border-slate-100 shadow-sm"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Disponibilidade Operacional</p><div className="flex items-end gap-2"><span className={`text-3xl font-black ${globalKpis.operationalAvailability >= 99 ? 'text-emerald-600' : 'text-amber-500'}`}>{globalKpis.operationalAvailability.toFixed(2)}%</span><ShieldCheckIcon className="w-5 h-5 text-emerald-500 mb-1" /></div></div>
+                    <div title="Mede a confiabilidade. Considera apenas paradas por falhas (Corretiva)." className="bg-white dark:bg-gray-800 p-6 rounded-3xl border border-slate-100 shadow-sm"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Disponibilidade Inerente</p><div className="flex items-end gap-2"><span className={`text-3xl font-black ${globalKpis.availability >= 99 ? 'text-emerald-600' : 'text-amber-500'}`}>{globalKpis.availability.toFixed(2)}%</span></div></div>
+                    <div className="bg-white dark:bg-gray-800 p-6 rounded-3xl border border-slate-100 shadow-sm"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">MTTR (Médio)</p><div className="flex items-end gap-2"><span className={`text-3xl font-black ${globalKpis.mttr > 1 ? 'text-rose-600' : 'text-emerald-600'}`}>{globalKpis.mttr.toFixed(1)}h</span></div></div>
+                    <div className="bg-white dark:bg-gray-800 p-6 rounded-3xl border border-slate-100 shadow-sm"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total de Falhas</p><div className="flex items-end gap-2"><span className="text-3xl font-black text-slate-800 dark:text-white">{globalKpis.failures}</span><WrenchIcon className="w-5 h-5 text-blue-500 mb-1" /></div></div>
                 </div>
 
-                {/* Gráfico de Tendência (Ocupa 1 coluna) */}
                 <div className="lg:col-span-1 h-full">
                     <TrendChart 
                         data={trendData} 
                         title="Evolução de Confiabilidade (MTBF Médio)" 
-                        color="#3b82f6" // Blue-500
-                        targetValue={100} // Meta visual de 100h
+                        color="#3b82f6"
+                        targetValue={100}
                     />
                 </div>
             </div>
@@ -186,6 +209,8 @@ export const DashboardPage: React.FC = () => {
                     <h3 className="text-xl font-black text-slate-400 uppercase">Sem dados no filtro</h3>
                 </div>
             )}
+
+            {isInfoModalOpen && <ReliabilityInfoModal isOpen={isInfoModalOpen} onClose={() => setIsInfoModalOpen(false)} />}
         </div>
     );
 };

@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Header } from '../components/Header';
 import { EquipmentType } from '../types';
-import { PlusIcon, EditIcon, DeleteIcon } from '../components/icons';
+import { PlusIcon, EditIcon, DeleteIcon, CheckCircleIcon, ExclamationTriangleIcon } from '../components/icons';
 import { EquipmentTypeModal } from '../components/EquipmentTypeModal';
 import { ConfirmationModal } from '../components/ConfirmationModal';
 import { useDataContext } from '../contexts/DataContext';
@@ -9,7 +9,7 @@ import { useDebounce } from '../hooks/useDebounce';
 
 export const EquipmentTypesPage: React.FC = () => {
     // FIX: Destructure missing properties from context
-    const { equipmentTypes, handleEquipmentTypeSave, handleEquipmentTypeDelete, equipmentData, showToast } = useDataContext();
+    const { equipmentTypes, handleEquipmentTypeSave, handleEquipmentTypeDelete, handleEquipmentTypeToggleStatus, equipmentData, showToast } = useDataContext();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingType, setEditingType] = useState<EquipmentType | null>(null);
     const [deletingType, setDeletingType] = useState<EquipmentType | null>(null);
@@ -46,7 +46,7 @@ export const EquipmentTypesPage: React.FC = () => {
                 alert(`Erro: O ID gerado "${newId}" já existe.`);
                 return;
             }
-            typeToSave = { ...type, id: newId };
+            typeToSave = { ...type, id: newId, active: true };
         }
         
         const success = await handleEquipmentTypeSave(typeToSave);
@@ -73,6 +73,15 @@ export const EquipmentTypesPage: React.FC = () => {
             return;
         }
         setDeletingType(type);
+    };
+
+    const handleToggleStatus = (type: EquipmentType) => {
+        const isInUse = equipmentData.some(eq => eq.typeId === type.id);
+        if (type.active && isInUse) {
+            alert("Não é possível desativar um tipo que está vinculado a equipamentos ativos.");
+            return;
+        }
+        handleEquipmentTypeToggleStatus(type.id, !!type.active);
     };
 
     return (
@@ -103,25 +112,59 @@ export const EquipmentTypesPage: React.FC = () => {
                     <thead className="bg-gray-50 dark:bg-gray-900/50">
                         <tr>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Descrição</th>
+                            <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Status</th>
                             <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Ações</th>
                         </tr>
                     </thead>
                     <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
                         {filteredEquipmentTypes.length > 0 ? (
-                            filteredEquipmentTypes.map(type => (
-                                <tr key={type.id}>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{type.description}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
-                                        <div className="flex items-center justify-center space-x-2">
-                                            <button onClick={() => openModal(type)} className="p-2 text-gray-500 hover:text-blue-500" title="Editar"><EditIcon /></button>
-                                            <button onClick={() => handleDeleteClick(type)} className="p-2 text-gray-500 hover:text-red-500" title="Excluir"><DeleteIcon /></button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))
+                            filteredEquipmentTypes.map(type => {
+                                const isInUse = equipmentData.some(eq => eq.typeId === type.id);
+                                const isActive = type.active !== false; // Default to true
+
+                                return (
+                                    <tr key={type.id}>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                                            {type.description}
+                                            {isInUse && (
+                                                <span className="ml-2 text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full border border-slate-200">
+                                                    Em uso
+                                                </span>
+                                            )}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-center">
+                                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                                {isActive ? 'Ativo' : 'Inativo'}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                                            <div className="flex items-center justify-center space-x-2">
+                                                
+                                                <button 
+                                                    onClick={() => handleToggleStatus(type)}
+                                                    className={`px-3 py-1 text-xs font-bold rounded uppercase transition-colors ${
+                                                        isActive 
+                                                        ? (isInUse ? 'text-gray-300 cursor-not-allowed' : 'text-orange-500 hover:bg-orange-50')
+                                                        : 'text-green-600 hover:bg-green-50'
+                                                    }`}
+                                                    title={isActive && isInUse ? "Tipo em uso não pode ser desativado" : (isActive ? "Desativar Tipo" : "Reativar Tipo")}
+                                                    disabled={isActive && isInUse}
+                                                >
+                                                    {isActive ? 'Desativar' : 'Reativar'}
+                                                </button>
+
+                                                <div className="w-px h-4 bg-gray-300 mx-2"></div>
+
+                                                <button onClick={() => openModal(type)} className="p-2 text-gray-500 hover:text-blue-500" title="Editar"><EditIcon /></button>
+                                                <button onClick={() => handleDeleteClick(type)} className="p-2 text-gray-500 hover:text-red-500" title="Excluir"><DeleteIcon /></button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                );
+                            })
                         ) : (
                              <tr>
-                                <td colSpan={2} className="text-center py-10 text-gray-500 dark:text-gray-400">
+                                <td colSpan={3} className="text-center py-10 text-gray-500 dark:text-gray-400">
                                     {searchTerm 
                                         ? `Nenhum resultado para "${searchTerm}"`
                                         : "Nenhum tipo de equipamento cadastrado."

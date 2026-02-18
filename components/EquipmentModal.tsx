@@ -26,6 +26,9 @@ export const EquipmentModal: React.FC<EquipmentModalProps> = ({ isOpen, onClose,
   const [customPlanId, setCustomPlanId] = useState('');
   const [typeId, setTypeId] = useState('');
 
+  // Filtra apenas tipos ativos para novos cadastros, mas mantém o atual se estiver editando (mesmo se inativo)
+  const activeTypes = equipmentTypes.filter(t => t.active !== false || (existingEquipment && t.id === existingEquipment.typeId));
+
   useEffect(() => {
     if (existingEquipment) {
       setId(existingEquipment.id);
@@ -142,7 +145,7 @@ export const EquipmentModal: React.FC<EquipmentModalProps> = ({ isOpen, onClose,
                     <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Família / Tipo</label>
                     <select value={typeId} onChange={e => setTypeId(e.target.value)} required className="form-input text-xs font-bold">
                         <option value="">Selecione...</option>
-                        {equipmentTypes.map(t => <option key={t.id} value={t.id}>{t.description}</option>)}
+                        {activeTypes.map(t => <option key={t.id} value={t.id}>{t.description}</option>)}
                     </select>
                 </div>
                 <div>

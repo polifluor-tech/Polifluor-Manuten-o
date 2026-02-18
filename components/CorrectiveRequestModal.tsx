@@ -1,16 +1,24 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Equipment, CorrectiveCategory, MaintenanceStatus, MaintenanceType } from '../types';
-import { CloseIcon, ClockIcon, ExclamationTriangleIcon, TargetIcon, WrenchIcon, PackageIcon, ShieldCheckIcon, HomeIcon, CheckCircleIcon, DocumentTextIcon, LightBulbIcon } from './icons';
+import { CloseIcon, ClockIcon, ExclamationTriangleIcon, TargetIcon, WrenchIcon, PackageIcon, ShieldCheckIcon, HomeIcon, CheckCircleIcon, DocumentTextIcon, LightBulbIcon, UploadIcon } from './icons';
 
 interface CorrectiveRequestModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onCreate: (equipmentId: string, description: string, requester: string, priority: 'Alta' | 'Média' | 'Baixa', osNumber: string, category?: CorrectiveCategory, failureDateTime?: string, type?: MaintenanceType, location?: string) => void;
+    onCreate: (data: any) => void;
     equipmentList: Equipment[];
     requesters: string[];
 }
 
 const PREDICAL_RISK_KEYWORDS = ['rachadura', 'infiltração', 'estrutura', 'poste', 'risco de queda'];
+
+const toBase64 = (file: File): Promise<string> => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve((reader.result as string).split(',')[1]);
+    reader.onerror = error => reject(error);
+});
+
 
 export const CorrectiveRequestModal: React.FC<CorrectiveRequestModalProps> = ({
     isOpen, onClose, onCreate, equipmentList, requesters
@@ -23,11 +31,13 @@ export const CorrectiveRequestModal: React.FC<CorrectiveRequestModalProps> = ({
     const [location, setLocation] = useState('');
     const [locationDisplay, setLocationDisplay] = useState('');
     const [description, setDescription] = useState('');
-    const [emailRef, setEmailRef] = useState('');
+    const [externalCompany, setExternalCompany] = useState('');
+    const [imageBase64, setImageBase64] = useState<string | undefined>(undefined);
+    const [imagePreview, setImagePreview] = useState<string | undefined>(undefined);
     const [requester, setRequester] = useState('');
     const [category, setCategory] = useState<CorrectiveCategory>(CorrectiveCategory.Mechanical);
-    const [riskClass, setRiskClass] = useState('PRODUTIVIDADE');
     const [failureDateTime, setFailureDateTime] = useState(() => new Date().toISOString().slice(0, 16));
+    const [scheduledDate, setScheduledDate] = useState(() => new Date().toISOString().slice(0, 10));
     const [showRiskSuggestion, setShowRiskSuggestion] = useState(false);
     const [maintenanceType, setMaintenanceType] = useState<MaintenanceType>(MaintenanceType.Corrective);
 
@@ -60,6 +70,16 @@ export const CorrectiveRequestModal: React.FC<CorrectiveRequestModalProps> = ({
             setLocationDisplay('');
         }
     }, [equipmentId, isPredial, equipmentList]);
+    
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            setImagePreview(URL.createObjectURL(file));
+            const base64 = await toBase64(file);
+            setImageBase64(base64);
+        }
+    };
+
 
     if (!isOpen) return null;
 
@@ -74,21 +94,22 @@ export const CorrectiveRequestModal: React.FC<CorrectiveRequestModalProps> = ({
             alert("Por favor, preencha todos os campos obrigatórios (*)");
             return;
         };
-
-        const footer = emailRef ? `\n\n[REF E-MAIL: ${emailRef}]` : '';
-        const externalTag = isExternalService ? '[SOLICITADO SERVIÇO EXTERNO] ' : '';
         
-        onCreate(
-            finalId, 
-            externalTag + finalDescription + footer, 
+        const externalTag = isExternalService ? `[SERVIÇO EXTERNO: ${externalCompany || 'N/A'}] ` : '';
+        
+        onCreate({
+            equipmentId: finalId, 
+            description: externalTag + finalDescription, 
             requester, 
-            isEmergency ? 'Alta' : 'Média', 
-            '', 
+            priority: isEmergency ? 'Alta' : 'Média', 
             category, 
-            failureDateTime,
-            maintenanceType,
-            finalLocation
-        );
+            failureDate: failureDateTime,
+            scheduledDate: scheduledDate,
+            type: maintenanceType,
+            location: finalLocation,
+            externalCompany: isExternalService ? externalCompany : undefined,
+            imageBase64: imageBase64,
+        });
         onClose();
     };
     
@@ -134,19 +155,11 @@ export const CorrectiveRequestModal: React.FC<CorrectiveRequestModalProps> = ({
                         </div>
                     </div>
 
-                    {isPredial && (
-                         <div className="bg-white p-4 rounded-xl border border-slate-100">
-                             <h4 className="text-[10px] font-black uppercase text-slate-400 mb-2">Atalhos Comuns</h4>
-                             <div className="flex flex-wrap gap-2">
-                                <button type="button" onClick={() => applyShortcut('Torneira/Tubulação', 'Vazamento.', 'Banheiro')} className="text-xs font-bold text-slate-600 bg-slate-100 p-2 rounded-lg border border-slate-200 hover:bg-slate-200">Vazamento</button>
-                                <button type="button" onClick={() => applyShortcut('Lâmpada/Reator', 'Iluminação não funciona.', 'Produção')} className="text-xs font-bold text-slate-600 bg-slate-100 p-2 rounded-lg border border-slate-200 hover:bg-slate-200">Iluminação</button>
-                                <button type="button" onClick={() => applyShortcut('Estrutura Metálica', 'Necessidade de adaptação ou reparo.', '')} className="text-xs font-bold text-slate-600 bg-slate-100 p-2 rounded-lg border border-slate-200 hover:bg-slate-200">Serralheria</button>
-                                <button type="button" onClick={() => applyShortcut('Ar Condicionado', 'Não está gelando ou apresenta vazamento.', 'Escritório')} className="text-xs font-bold text-slate-600 bg-slate-100 p-2 rounded-lg border border-slate-200 hover:bg-slate-200">Ar Condicionado</button>
-                                <button type="button" onClick={() => applyShortcut('Pintura', 'Necessidade de retoque ou pintura em parede/estrutura.', '')} className="text-xs font-bold text-slate-600 bg-slate-100 p-2 rounded-lg border border-slate-200 hover:bg-slate-200">Pintura</button>
-                                <button type="button" onClick={() => applyShortcut('Tomada/Disjuntor', 'Problema elétrico geral.', '')} className="text-xs font-bold text-slate-600 bg-slate-100 p-2 rounded-lg border border-slate-200 hover:bg-slate-200">Elétrica</button>
-                                <button type="button" onClick={() => applyShortcut('Parede/Piso', 'Reparo em alvenaria.', '')} className="text-xs font-bold text-slate-600 bg-slate-100 p-2 rounded-lg border border-slate-200 hover:bg-slate-200">Alvenaria</button>
-                             </div>
-                         </div>
+                    {isExternalService && (
+                         <div className="animate-fade-in">
+                            <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Empresa Terceirizada</label>
+                            <input type="text" value={externalCompany} onChange={e => setExternalCompany(e.target.value)} placeholder="Nome da empresa contratada" className="w-full h-12 form-input font-bold bg-amber-50 border-amber-200" />
+                        </div>
                     )}
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -178,48 +191,25 @@ export const CorrectiveRequestModal: React.FC<CorrectiveRequestModalProps> = ({
 
                     <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Descrição Técnica do Problema *</label>
-                        <textarea value={description} onChange={e => setDescription(e.target.value)} required rows={4} placeholder="Ex: Vazamento no pistão, bico entupido..." className="w-full p-4 form-input font-bold" />
+                        <textarea value={description} onChange={e => setDescription(e.target.value)} required rows={3} placeholder="Ex: Vazamento no pistão, bico entupido..." className="w-full p-4 form-input font-bold" />
                     </div>
 
-                    <div className="grid grid-cols-2 gap-6">
+                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Categoria da Falha *</label>
-                            <select value={category} onChange={e => setCategory(e.target.value as CorrectiveCategory)} required className="w-full h-12 form-input font-black" disabled={isPredial}>
-                               {Object.values(CorrectiveCategory).map(cat => <option key={cat} value={cat}>{cat}</option>)}
-                            </select>
+                             <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Anexar Foto do Problema</label>
+                            <input type="file" accept="image/*" onChange={handleFileChange} className="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"/>
                         </div>
-                         <div>
-                            <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Referência de E-mail / Cotação</label>
-                            <input type="text" value={emailRef} onChange={e => setEmailRef(e.target.value)} placeholder="Ex: E-mail Prensas 04/06" className="w-full h-12 form-input font-bold" />
-                        </div>
+                         {imagePreview && <img src={imagePreview} alt="Preview" className="w-24 h-24 object-cover rounded-lg border-2 border-slate-200" />}
                     </div>
-                    
-                    {showRiskSuggestion && (
-                        <div className="p-4 bg-amber-50 border-l-4 border-amber-400 flex items-center justify-between animate-fade-in">
-                            <div className="flex items-center gap-3">
-                                <LightBulbIcon className="w-6 h-6 text-amber-500" />
-                                <div>
-                                    <h4 className="font-bold text-amber-800 text-sm">Sugestão de Análise de Risco</h4>
-                                    <p className="text-xs text-amber-700">O problema descrito pode indicar um risco estrutural. Considere abrir uma Revisão Periódica para uma análise mais aprofundada.</p>
-                                </div>
-                            </div>
-                            <button type="button" onClick={() => setMaintenanceType(MaintenanceType.RevisaoPeriodica)} className={`px-3 py-1 text-xs font-black uppercase rounded-lg border ${maintenanceType === MaintenanceType.RevisaoPeriodica ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-amber-700 border-amber-200'}`}>
-                                {maintenanceType === MaintenanceType.RevisaoPeriodica ? 'Selecionado' : 'Sugerir Revisão'}
-                            </button>
-                        </div>
-                    )}
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                            <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Setor Solicitante *</label>
-                            <select value={requester} onChange={e => setRequester(e.target.value)} required className="w-full h-12 form-input font-black">
-                                <option value="">Quem solicita?</option>
-                                {requesters.map(r => <option key={r} value={r}>{r}</option>)}
-                            </select>
+                         <div>
+                            <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Data/Hora da Falha</label>
+                            <input type="datetime-local" value={failureDateTime} onChange={e => setFailureDateTime(e.target.value)} className="w-full h-12 form-input font-bold" />
                         </div>
                         <div>
-                            <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Data/Hora da Ocorrência</label>
-                            <input type="datetime-local" value={failureDateTime} onChange={e => setFailureDateTime(e.target.value)} className="w-full h-12 form-input font-bold" />
+                            <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Data Programada para Execução</label>
+                            <input type="date" value={scheduledDate} onChange={e => setScheduledDate(e.target.value)} className="w-full h-12 form-input font-bold" />
                         </div>
                     </div>
                 </div>

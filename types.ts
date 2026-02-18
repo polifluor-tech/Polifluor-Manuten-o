@@ -1,4 +1,3 @@
-
 // FIX: Add UserRole, AssetCategory, CorrectiveCategory and other enums/types
 export type UserRole = 'admin' | 'gestor' | 'manutencista' | 'operador';
 
@@ -93,6 +92,9 @@ export interface WorkOrder {
     isPrepared?: boolean;
     equipments?: Equipment | null;
     deleted_at?: string;
+    failureDate?: string;
+    externalCompany?: string;
+    imageBase64?: string;
 }
 
 export interface Equipment {
@@ -118,6 +120,7 @@ export interface Equipment {
 export interface EquipmentType {
     id: string;
     description: string;
+    active?: boolean; // New property for soft deactivation
 }
 
 export interface MaintenancePlan {
@@ -150,7 +153,8 @@ export type Page =
     | 'purchasing'
     | 'inventory_logs'
     | 'equipment_types'
-    | 'schedule';
+    | 'schedule'
+    | 'activity_log';
 
 // Added missing types
 export interface StatusConfig {
@@ -213,4 +217,14 @@ export interface StockMovement {
     reason: string; // e.g., 'OS #1234', 'Ajuste de Inventário'
     user: string;
     date: string; // ISO string
+}
+
+export interface ActivityLogEntry {
+    id: string;
+    created_at: string;
+    user_email: string;
+    action: 'INSERT' | 'UPDATE' | 'DELETE';
+    table_name: string;
+    record_id: string;
+    description: string;
 }

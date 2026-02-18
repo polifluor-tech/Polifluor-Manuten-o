@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+
+import React, { useState, useEffect, useMemo } from 'react';
 import { useDataContext } from '../contexts/DataContext';
 import { useAdvancedMetrics } from '../hooks/useAdvancedMetrics';
 import { 
-    // FIX: Add missing icon imports
     DownloadIcon, 
     ChartIcon, 
     WrenchIcon, 
@@ -22,6 +22,7 @@ import {
     generateEquipmentTypesReport,
     generateExecutiveSummaryReport
 } from '../reports/reportGenerator';
+import { MONTHS } from '../constants';
 
 interface ReportCardProps {
     icon: React.ReactNode;
@@ -55,17 +56,40 @@ const ReportCard: React.FC<ReportCardProps> = ({ icon, title, description, onCli
 );
 
 export const ReportsPage: React.FC = () => {
-    // FIX: Destructure missing property from context
     const { equipmentData, workOrders, inventoryData, equipmentTypes } = useDataContext();
     const calculateMetrics = useAdvancedMetrics();
     const [isLoading, setIsLoading] = useState<string | null>(null);
-    const [dateRange, setDateRange] = useState({
-        start: '2026-01-01',
-        end: '2026-12-31'
-    });
+    
+    // Estado do filtro (Default: Ano)
+    const [selectedPeriod, setSelectedPeriod] = useState<'Ano' | number>('Ano');
+    
+    // O dateRange é calculado via useMemo para garantir reatividade imediata
+    const dateRange = useMemo(() => {
+        const year = 2026;
+        if (selectedPeriod === 'Ano') {
+            return { start: `${year}-01-01`, end: `${year}-12-31` };
+        } else {
+            const month = selectedPeriod; // 0-indexed (0 = Jan)
+            const startDate = new Date(year, month, 1);
+            const endDate = new Date(year, month + 1, 0); // Último dia do mês
+
+            const formatDate = (d: Date) => {
+                const y = d.getFullYear();
+                const m = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                return `${y}-${m}-${day}`;
+            };
+            
+            return {
+                start: formatDate(startDate),
+                end: formatDate(endDate)
+            };
+        }
+    }, [selectedPeriod]);
 
     const handleGenerateReport = async (reportId: string, generator: () => void) => {
         setIsLoading(reportId);
+        // Pequeno delay para permitir que a UI atualize (spinner)
         await new Promise(resolve => setTimeout(resolve, 50)); 
         try {
             generator();
@@ -82,6 +106,7 @@ export const ReportsPage: React.FC = () => {
             generateExecutiveSummaryReport({ equipmentData, workOrders, inventoryData, dateRange });
         }},
         { id: 'kpi_criticos', icon: <TargetIcon className="w-6 h-6"/>, title: "KPIs: Ativos Críticos", description: "MTBF, MTTR e Disponibilidade para equipamentos Classe A.", action: () => {
+            // Passa explicitamente o range calculado
             const data = calculateMetrics(equipmentData, workOrders, equipmentData.map(e=>e.id), dateRange.start, dateRange.end, 'Criticos');
             generateKpiReport('KPIs de Ativos Críticos', data, dateRange);
         }},
@@ -107,24 +132,41 @@ export const ReportsPage: React.FC = () => {
                 <div className="absolute bottom-[-2px] left-0 h-1 w-32 bg-gradient-to-r from-[#D32F2F] to-blue-900"></div>
             </div>
             
-            <div className="bg-white/50 dark:bg-gray-800/50 p-4 rounded-2xl shadow-sm border border-slate-100 backdrop-blur-sm sticky top-4 z-30">
-                <div className="flex items-center gap-4 mb-3">
-                    <label className="text-[10px] font-black uppercase text-slate-400 whitespace-nowrap">Períodos Rápidos:</label>
-                    <button onClick={() => setDateRange({ start: '2026-01-01', end: '2026-01-31' })} className="px-3 py-1 bg-slate-100 text-slate-700 font-black rounded-lg text-[9px] uppercase border border-slate-200 hover:bg-slate-200 transition-all">
-                        Mensal (Jan/26)
-                    </button>
-                    <button onClick={() => setDateRange({ start: '2026-01-01', end: '2026-12-31' })} className="px-3 py-1 bg-slate-100 text-slate-700 font-black rounded-lg text-[9px] uppercase border border-slate-200 hover:bg-slate-200 transition-all">
-                        Anual (2026)
-                    </button>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label className="text-[10px] font-black uppercase text-slate-400 mb-1 ml-1 block">Data de Início</label>
-                        <input type="date" value={dateRange.start} onChange={e => setDateRange(prev => ({...prev, start: e.target.value}))} className="w-full form-input h-12 bg-slate-50"/>
+            {/* NOVO FILTRO ESTILIZADO E CORRIGIDO */}
+            <div className="bg-white/50 dark:bg-gray-800/50 p-2 rounded-2xl shadow-lg border border-slate-100 dark:border-gray-700 backdrop-blur-sm sticky top-4 z-30">
+                <div className="flex flex-col sm:flex-row items-center gap-4 p-2">
+                    <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Período de Análise:</span>
+                        <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded border border-blue-100">
+                            {selectedPeriod === 'Ano' ? 'Ano Completo (2026)' : MONTHS[selectedPeriod]}
+                        </span>
                     </div>
-                     <div>
-                        <label className="text-[10px] font-black uppercase text-slate-400 mb-1 ml-1 block">Data de Fim</label>
-                        <input type="date" value={dateRange.end} onChange={e => setDateRange(prev => ({...prev, end: e.target.value}))} className="w-full form-input h-12 bg-slate-50"/>
+                    
+                    <div className="flex items-center gap-1 w-full overflow-x-auto no-scrollbar">
+                        <button
+                            onClick={() => setSelectedPeriod('Ano')}
+                            className={`flex-shrink-0 px-6 py-2 rounded-lg text-sm font-black transition-all h-10 ${
+                                selectedPeriod === 'Ano' 
+                                ? 'bg-blue-600 text-white shadow-md transform scale-105' 
+                                : 'bg-white dark:bg-gray-900 text-slate-500 hover:bg-slate-100 border border-slate-200 dark:border-gray-700'
+                            }`}
+                        >
+                            ANO 2026
+                        </button>
+                        <div className="h-8 w-px bg-slate-300 mx-2"></div>
+                        {MONTHS.map((month, idx) => (
+                            <button
+                                key={month}
+                                onClick={() => setSelectedPeriod(idx)}
+                                className={`flex-shrink-0 w-10 h-10 flex items-center justify-center rounded-lg text-[10px] font-black transition-all ${
+                                    selectedPeriod === idx 
+                                    ? 'bg-blue-600 text-white shadow-lg transform scale-110' 
+                                    : 'bg-white dark:bg-gray-900 text-slate-400 hover:bg-slate-100 border border-slate-200 dark:border-gray-700'
+                                }`}
+                            >
+                                {month.substring(0, 3).toUpperCase()}
+                            </button>
+                        ))}
                     </div>
                 </div>
             </div>

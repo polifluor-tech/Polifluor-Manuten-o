@@ -1,4 +1,6 @@
 
+
+
 import React, { useState, useMemo } from 'react';
 import { useAppContext } from './contexts/AppContext';
 import { useDataContext } from './contexts/DataContext';
@@ -23,6 +25,7 @@ import { DocumentationPage } from './pages/DocumentationPage';
 import { InformationPage } from './pages/InformationPage';
 import { PermissionDenied } from './components/PermissionDenied';
 import { SchedulePage } from './pages/SchedulePage';
+import { ActivityLogPage } from './pages/ActivityLogPage';
 
 // Import Components
 import { Sidebar } from './components/Sidebar';
@@ -48,6 +51,7 @@ const pagePermissions: Record<Page, UserRole[]> = {
     settings: ['admin'],
     documentation: ['admin', 'gestor'],
     information: ['admin', 'gestor', 'manutencista', 'operador'],
+    activity_log: ['admin'],
 };
 
 
@@ -94,6 +98,7 @@ const AppContent: React.FC = () => {
             case 'settings': return <SettingsPage />;
             case 'documentation': return <DocumentationPage />;
             case 'information': return <InformationPage />;
+            case 'activity_log': return <ActivityLogPage />;
             default: return <HomePage />;
         }
     };
@@ -105,19 +110,21 @@ const AppContent: React.FC = () => {
         }
     }
     
-    const handleCreateCorrective = async (equipmentId: string, description: string, requester: string, priority: string, osNumber: string, category?: any, failureDateTime?: string, type?: any, location?: string) => {
-        // Envia ID vazio para que o banco gere
+    const handleCreateCorrective = async (data: any) => {
         const newOrder: WorkOrder = {
             id: '', 
-            equipmentId,
-            description,
-            requester,
-            type: type || MaintenanceType.Corrective,
+            equipmentId: data.equipmentId,
+            description: data.description,
+            requester: data.requester,
+            type: data.type || MaintenanceType.Corrective,
             status: MaintenanceStatus.Scheduled,
-            scheduledDate: failureDateTime || new Date().toISOString(),
-            correctiveCategory: category,
-            machineStopped: priority === 'Alta',
-            observations: location, // Salva a localização aqui
+            scheduledDate: data.scheduledDate,
+            failureDate: data.failureDate,
+            correctiveCategory: data.category,
+            machineStopped: data.priority === 'Alta',
+            observations: data.location,
+            externalCompany: data.externalCompany,
+            imageBase64: data.imageBase64,
         };
         await handleSaveWorkOrder(newOrder);
         setIsCorrectiveModalOpen(false);

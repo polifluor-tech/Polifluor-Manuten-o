@@ -1,4 +1,5 @@
 
+
 import React, { useMemo } from 'react';
 import { Page, MaintenanceStatus, UserRole } from '../types';
 import { useAppContext } from '../contexts/AppContext';
@@ -7,7 +8,7 @@ import {
     SettingsIcon, UsersIcon, InventoryIcon, PackageIcon, ClipboardListIcon,
     ScheduleIcon, HomeIcon, ChartIcon, ShieldCheckIcon,
     WrenchIcon, InfoIcon, DocumentTextIcon, ShoppingCartIcon, RefreshIcon,
-    TargetIcon, ChevronRightIcon, ChevronLeftIcon, DownloadIcon
+    TargetIcon, ChevronRightIcon, ChevronLeftIcon, DownloadIcon, SecurityIcon
 } from './icons';
 
 interface NavItemProps {
@@ -116,6 +117,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle, onClose
             sistema: [
                 { icon: <SettingsIcon />, label: "Configurações", page: "settings" },
                 { icon: <DocumentTextIcon />, label: "Impressão", page: "documentation" },
+                { icon: <SecurityIcon />, label: "Auditoria / Log", page: "activity_log" },
                 { icon: <InfoIcon />, label: "Sobre", page: "information" },
             ]
         };

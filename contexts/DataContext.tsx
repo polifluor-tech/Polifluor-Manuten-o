@@ -1,7 +1,6 @@
-
 import React, { createContext, useContext, useState, useCallback, ReactNode, useEffect } from 'react';
 import { useToast } from './ToastContext';
-import { Equipment, WorkOrder, MaintenanceStatus, MaintenanceType, EquipmentType, MaintenancePlan, SparePart, StockMovement, AssetCategory, CorrectiveCategory } from '../types';
+import { Equipment, WorkOrder, MaintenanceStatus, MaintenanceType, EquipmentType, MaintenancePlan, SparePart, StockMovement, AssetCategory, CorrectiveCategory, ActivityLogEntry } from '../types';
 import { supabase } from '../supabaseClient';
 
 // --- MAPPERS (ADAPTADORES DE DADOS) ---
@@ -83,7 +82,10 @@ const mapWorkOrderFromDB = (data: any): WorkOrder => ({
     reportPdfBase64: data.report_pdf_base64,
     isPrepared: data.is_prepared,
     deleted_at: data.deleted_at,
-    equipments: data.equipments ? mapEquipmentFromDB(data.equipments) : null
+    equipments: data.equipments ? mapEquipmentFromDB(data.equipments) : null,
+    failureDate: data.failure_date,
+    externalCompany: data.external_company,
+    imageBase64: data.image_base64,
 });
 
 const mapWorkOrderToDB = (data: WorkOrder) => {
@@ -110,7 +112,10 @@ const mapWorkOrderToDB = (data: WorkOrder) => {
         misc_notes: rest.miscNotes,
         report_pdf_base64: rest.reportPdfBase64,
         is_prepared: rest.isPrepared,
-        deleted_at: rest.deleted_at
+        deleted_at: rest.deleted_at,
+        failure_date: rest.failureDate,
+        external_company: rest.externalCompany,
+        image_base64: rest.imageBase64,
     };
     if (rest.id && rest.id.trim() !== '') {
         payload.id = rest.id;
@@ -153,6 +158,7 @@ interface DataContextType {
     maintainers: string[];
     requesters: string[];
     stockMovements: StockMovement[];
+    activityLog: ActivityLogEntry[];
     isSyncing: boolean;
     cloudConnected: boolean;
 
@@ -170,6 +176,7 @@ interface DataContextType {
     handleBulkDeleteWorkOrders: () => Promise<boolean>;
     handleEquipmentTypeSave: (type: EquipmentType) => Promise<boolean>;
     handleEquipmentTypeDelete: (id: string) => Promise<boolean>;
+    handleEquipmentTypeToggleStatus: (id: string, currentStatus: boolean) => Promise<boolean>;
     handleEquipmentSave: (equipment: Equipment) => Promise<boolean>;
     handleEquipmentDelete: (id: string) => Promise<boolean>;
     handlePlanDelete: (id: string) => Promise<boolean>;
@@ -195,6 +202,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const [maintainers, setMaintainers] = useState<string[]>([]);
     const [requesters, setRequesters] = useState<string[]>([]);
     const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
+    const [activityLog, setActivityLog] = useState<ActivityLogEntry[]>([]);
     const [isSyncing, setIsSyncing] = useState(true);
     const [cloudConnected, setCloudConnected] = useState(true);
     const { showToast } = useToast();
@@ -212,15 +220,17 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 { data: maintainerList, error: maintainerError },
                 { data: requesterList, error: requesterError },
                 { data: movements, error: movementsError },
+                { data: log, error: logError },
             ] = await Promise.all([
                 supabase.from('equipments').select('*').is('deleted_at', null),
-                supabase.from('equipment_types').select('*'),
+                supabase.from('equipment_types').select('*').order('description'),
                 supabase.from('maintenance_plans').select('*').is('deleted_at', null),
                 supabase.from('work_orders').select('*, equipments(*)').is('deleted_at', null), 
                 supabase.from('spare_parts').select('*'),
                 supabase.from('maintainers').select('name'),
                 supabase.from('requesters').select('name'),
                 supabase.from('stock_movements').select('*'),
+                supabase.from('activity_log').select('*').order('created_at', { ascending: false }).limit(200),
             ]);
 
             if (equipmentError) throw equipmentError;
@@ -231,6 +241,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             if (maintainerError) throw maintainerError;
             if (requesterError) throw requesterError;
             if (movementsError) throw movementsError;
+            if (logError) throw logError;
             
             setEquipmentData((equipment || []).map(mapEquipmentFromDB));
             setEquipmentTypes(types || []);
@@ -241,6 +252,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             setMaintainers((maintainerList || []).map(m => m.name));
             setRequesters((requesterList || []).map(r => r.name));
             setStockMovements(movements || []);
+            setActivityLog(log || []);
             
             setCloudConnected(true);
             console.log("✅ Dados carregados com sucesso.");
@@ -417,6 +429,20 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return true;
     };
 
+    const handleEquipmentTypeToggleStatus = async (id: string, currentStatus: boolean): Promise<boolean> => {
+        const newStatus = !currentStatus;
+        const { error } = await supabase.from('equipment_types').update({ active: newStatus }).eq('id', id);
+        
+        if (error) {
+            showToast(`Erro ao alterar status: ${error.message}`, 'error');
+            return false;
+        }
+        
+        setEquipmentTypes(prev => prev.map(t => t.id === id ? { ...t, active: newStatus } : t));
+        showToast(newStatus ? "Tipo ativado com sucesso." : "Tipo desativado com sucesso.", "success");
+        return true;
+    };
+
     const handleBulkDeleteWorkOrders = async (): Promise<boolean> => {
         showToast("Iniciando exclusão em lote...", "warning");
         const { error } = await supabase.from('work_orders').update({ deleted_at: new Date().toISOString() }).neq('id', '0');
@@ -532,10 +558,10 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     return (
         <DataContext.Provider value={{
-            equipmentData, workOrders, equipmentTypes, maintenancePlans, inventoryData, maintainers, requesters, stockMovements, isSyncing, cloudConnected,
+            equipmentData, workOrders, equipmentTypes, maintenancePlans, inventoryData, maintainers, requesters, stockMovements, activityLog, isSyncing, cloudConnected,
             handleSaveWorkOrder, handlePlanSave, showToast, handleUnifiedSave, handlePartSave, handleInventoryAdjustment,
             handleMaintainerSave, handleMaintainerDelete, handleRequesterSave, handleRequesterDelete, handleWorkOrderDelete, handleBulkDeleteWorkOrders,
-            handleEquipmentTypeSave, handleEquipmentTypeDelete, handleEquipmentSave, handleEquipmentDelete, handlePlanDelete,
+            handleEquipmentTypeSave, handleEquipmentTypeDelete, handleEquipmentTypeToggleStatus, handleEquipmentSave, handleEquipmentDelete, handlePlanDelete,
             forceFullDatabaseRefresh: fetchData, logActivity, revertTasksPreparation, markTasksAsPrepared, handleBulkReprogramPlans, 
             generateFullPlanning2026, runAutoClassification, refreshPlanTargets, compactDatabaseIds
         }}>

@@ -32,7 +32,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
         const p = password.trim();
 
         // 1. ADMINISTRAÇÃO (Senha Numérica - Ex: 123456)
-        if ((u === 'juliana' || u === 'leandro' || u === 'pedro') && p === '123456') {
+        if ((u === 'juliana' || u === 'leandro' || u === 'pedro' || u === 'admin') && p === '123456') {
             onLogin({ 
                 username: u, 
                 name: u.charAt(0).toUpperCase() + u.slice(1), 
@@ -61,10 +61,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                 name: 'Sergio Lacerda', 
                 role: 'manutencista' 
             });
-        }
-        // Fallback para testes (manter se necessário)
-        else if (u === 'admin' && p === 'admin') {
-             onLogin({ username: 'admin', name: 'Administrador', role: 'admin' });
         }
         else {
             setError('Credenciais inválidas. Verifique usuário e senha.');
