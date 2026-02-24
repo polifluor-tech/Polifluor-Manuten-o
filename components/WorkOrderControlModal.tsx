@@ -1,209 +1,687 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { WorkOrder, Equipment, MaintenanceStatus, MaintenanceType, TaskDetail, SparePart, CorrectiveCategory } from '../types';
-import { CloseIcon, PlusIcon, DeleteIcon, CheckCircleIcon, WrenchIcon, UsersIcon, ShoppingCartIcon } from './icons';
+import { WorkOrder, Equipment, SparePart, MaintenanceStatus, MaintenanceType, TaskDetail, CorrectiveCategory, ManHourEntry, PurchaseRequest } from '../types';
+import { 
+    CloseIcon, 
+    CheckCircleIcon, 
+    ClipboardListIcon, 
+    ExclamationTriangleIcon, 
+    PlusIcon, 
+    DeleteIcon, 
+    UploadIcon, 
+    ShieldCheckIcon, 
+    ClockIcon, 
+    ShoppingCartIcon,
+    DocumentTextIcon, 
+    WrenchIcon,
+    LightBulbIcon,
+    BellAlertIcon,
+    ArrowPathIcon
+} from './icons';
+import { useDataContext } from '../contexts/DataContext';
+import { useAppContext } from '../contexts/AppContext'; 
+import { ConfirmationModal } from './ConfirmationModal'; 
 
 interface WorkOrderControlModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onSave: (order: WorkOrder) => Promise<void>;
+    onSave: (order: WorkOrder) => void;
     existingOrder: WorkOrder | null;
     equipmentData: Equipment[];
     inventoryData: SparePart[];
-    nextOSNumber: string;
+    nextOSNumber: string; 
     maintainers: string[];
     requesters: string[];
 }
 
-export const WorkOrderControlModal: React.FC<WorkOrderControlModalProps> = ({ 
-    isOpen, onClose, onSave, existingOrder, equipmentData, inventoryData, maintainers, requesters 
-}) => {
-    const [order, setOrder] = useState<WorkOrder | null>(null);
-    const [locationDisplay, setLocationDisplay] = useState('');
-    const [newTaskAction, setNewTaskAction] = useState('');
+type Tab = 'summary' | 'checklist' | 'resources' | 'approval';
+
+export const WorkOrderControlModal: React.FC<WorkOrderControlModalProps> = ({ isOpen, onClose, existingOrder, equipmentData, inventoryData, maintainers, requesters }) => {
+    const { handleUnifiedSave, handleWorkOrderDelete, showToast } = useDataContext();
+    const { userRole, requestAdminPassword, currentUser } = useAppContext();
+    const [activeTab, setActiveTab] = useState<Tab>('summary');
+    const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    
+    // Core Fields
+    const [id, setId] = useState('');
+    const [equipmentId, setEquipmentId] = useState('');
+    const [type, setType] = useState<MaintenanceType>(MaintenanceType.Corrective);
+    const [status, setStatus] = useState<MaintenanceStatus>(MaintenanceStatus.Scheduled);
+    
+    // Dates
+    const [scheduledDate, setScheduledDate] = useState(''); 
+    const [startDateExecution, setStartDateExecution] = useState('');
+    const [endDate, setEndDate] = useState('');
+    
+    const [description, setDescription] = useState('');
+    const [requester, setRequester] = useState('');
+    const [observations, setObservations] = useState('');
+    const [locationDisplay, setLocationDisplay] = useState('');
+    
+    // Approval
+    const [isApproved, setIsApproved] = useState(false); 
+
+    // Checklist
+    const [checklist, setChecklist] = useState<TaskDetail[]>([]);
+    
+    // Corrective/Specific Fields
+    const [rootCause, setRootCause] = useState('');
+    const [correctiveCategory, setCorrectiveCategory] = useState<CorrectiveCategory | undefined>(undefined);
+    const [machineStopped, setMachineStopped] = useState(false);
+    
+    const [runtimeHours, setRuntimeHours] = useState('');
+    const [leadTimeAlert, setLeadTimeAlert] = useState(false);
+
+    // Resources
+    const [manHours, setManHours] = useState<ManHourEntry[]>([]);
+    const [materialsUsed, setMaterialsUsed] = useState<{ partId: string; quantity: number }[]>([]);
+    const [purchaseRequests, setPurchaseRequests] = useState<PurchaseRequest[]>([]);
+    
+    // New Purchase Request Input
+    const [newPurchaseItem, setNewPurchaseItem] = useState('');
+    const [newPurchaseQty, setNewPurchaseQty] = useState(1);
+    
+    // PDF Report
+    const [reportPdf, setReportPdf] = useState<string | null>(null);
+    const [pdfFileName, setPdfFileName] = useState<string>('');
+
+    const selectedEquipment = useMemo(() => equipmentData.find(e => e.id === equipmentId), [equipmentId, equipmentData]);
+    const isCorrective = type === MaintenanceType.Corrective || type === MaintenanceType.Predial;
+    const displayName = equipmentId === 'ATIVO_PREDIAL_GENERICO' ? 'Ativo/Passivo Predial' : selectedEquipment?.name || 'Selecione o Ativo';
+    
+    const isAdmin = userRole === 'admin';
+    const canDelete = userRole === 'admin'; 
 
     useEffect(() => {
-        if (existingOrder) {
-            setOrder(existingOrder);
-        } else {
-            setOrder({
-                id: '',
-                equipmentId: '',
-                type: MaintenanceType.Corrective,
-                status: MaintenanceStatus.Scheduled,
-                scheduledDate: new Date().toISOString().slice(0, 10),
-                description: '',
-                checklist: [],
-                manHours: [],
-                materialsUsed: [],
-                purchaseRequests: [],
-            });
+        if (isOpen) {
+            if (existingOrder) {
+                setId(existingOrder.id);
+                setEquipmentId(existingOrder.equipmentId);
+                setType(existingOrder.type);
+                setStatus(existingOrder.status);
+                setScheduledDate(existingOrder.scheduledDate ? existingOrder.scheduledDate.slice(0, 10) : '');
+                setStartDateExecution((existingOrder as any).startDateExecution ? (existingOrder as any).startDateExecution.slice(0,16) : '');
+                setEndDate(existingOrder.endDate ? existingOrder.endDate.slice(0,16) : '');
+                setDescription(existingOrder.description || '');
+                setRequester(existingOrder.requester || '');
+                setObservations(existingOrder.observations || '');
+                setChecklist(existingOrder.checklist || []);
+                setRuntimeHours(existingOrder.miscNotes?.match(/Horímetro: (\d+)/)?.[1] || '');
+                setRootCause(existingOrder.rootCause || '');
+                setCorrectiveCategory(existingOrder.correctiveCategory || undefined);
+                setMachineStopped(existingOrder.machineStopped || false);
+                setIsApproved((existingOrder as any).isApproved || false); 
+                setManHours(existingOrder.manHours || []);
+                setMaterialsUsed(existingOrder.materialsUsed || []);
+                setPurchaseRequests(existingOrder.purchaseRequests || []);
+                setReportPdf(existingOrder.reportPdfBase64 || null);
+                if(existingOrder.reportPdfBase64) setPdfFileName(`Relatorio_${existingOrder.id}.pdf`);
+                else setPdfFileName('');
+            } else {
+                setId(''); 
+                const today = new Date().toISOString().slice(0, 10);
+                setScheduledDate(today);
+                setStartDateExecution('');
+                setType(MaintenanceType.Corrective); 
+                setStatus(MaintenanceStatus.Scheduled);
+                setEquipmentId('');
+                setDescription('');
+                setRequester('');
+                setChecklist([]);
+                setEndDate('');
+                setManHours([]);
+                setMaterialsUsed([]);
+                setPurchaseRequests([]);
+                setObservations('');
+                setMachineStopped(false);
+                setIsApproved(false);
+                setRuntimeHours('');
+                setCorrectiveCategory(undefined);
+                setReportPdf(null);
+                setPdfFileName('');
+            }
         }
     }, [existingOrder, isOpen]);
 
-    const selectedEquipment = useMemo(() => 
-        equipmentData.find(e => e.id === order?.equipmentId), 
-    [equipmentData, order?.equipmentId]);
-
-    const equipmentId = order?.equipmentId;
-    const observations = order?.observations;
-
     useEffect(() => {
-        // Lógica aprimorada de Localização:
-        // 1. Se for um ativo real (não o genérico), SEMPRE mostra a localização do cadastro.
-        if (selectedEquipment && selectedEquipment.id !== 'ATIVO_PREDIAL_GENERICO') {
+        if (type === MaintenanceType.Predial || equipmentId === 'ATIVO_PREDIAL_GENERICO') {
+            setLocationDisplay(observations || 'Não especificado');
+        } else if (selectedEquipment) {
             setLocationDisplay(selectedEquipment.location || 'Não especificado');
-        } 
-        // 2. Se for o ativo genérico (Predial/Outros), usa as observações como local (ou pede definição)
-        else if (equipmentId === 'ATIVO_PREDIAL_GENERICO') {
-            setLocationDisplay(observations || 'Definir na descrição');
-        } 
-        // 3. Reset
-        else {
+        } else {
             setLocationDisplay('');
         }
-    }, [equipmentId, selectedEquipment, observations]);
+    }, [equipmentId, selectedEquipment, type, observations]);
 
-    if (!isOpen || !order) return null;
-
-    const handleFieldChange = (field: keyof WorkOrder, value: any) => {
-        setOrder(prev => prev ? { ...prev, [field]: value } : null);
+    const handleChecklistItemToggle = (indexToToggle: number) => {
+        setChecklist(prev => prev.map((item, index) => 
+            index === indexToToggle ? { ...item, checked: !item.checked } : item
+        ));
     };
 
-    const handleAddTask = () => {
-        if (!newTaskAction.trim() || !order) return;
-        const newTask: TaskDetail = { action: newTaskAction.trim(), checked: false };
-        const updatedChecklist = [...(order.checklist || []), newTask];
-        handleFieldChange('checklist', updatedChecklist);
-        setNewTaskAction('');
+    const handleAddPurchaseRequest = () => {
+        if (!newPurchaseItem) return;
+        const newReq: PurchaseRequest = {
+            id: `REQ-${id || 'NOVA'}-${purchaseRequests.length + 1}`,
+            itemDescription: newPurchaseItem,
+            quantity: newPurchaseQty,
+            requester: 'Manutenção',
+            requisitionDate: new Date().toISOString(),
+            status: 'Pendente'
+        };
+        setPurchaseRequests([...purchaseRequests, newReq]);
+        setNewPurchaseItem('');
+        setNewPurchaseQty(1);
     };
 
-    const handleRemoveTask = (index: number) => {
-        if (!order || !order.checklist) return;
-        const updatedChecklist = order.checklist.filter((_, i) => i !== index);
-        handleFieldChange('checklist', updatedChecklist);
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file && file.type === "application/pdf") {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const base64 = event.target?.result as string;
+                setReportPdf(base64.split(',')[1]); 
+                setPdfFileName(file.name);
+            };
+            reader.readAsDataURL(file);
+        } else {
+            showToast("Por favor, selecione um arquivo .pdf", "warning");
+        }
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (order) {
-            setIsSaving(true);
-            await onSave(order);
+    const handleSave = async (forceStatus?: MaintenanceStatus) => {
+        setIsSaving(true);
+        try {
+            const targetStatus = forceStatus || status;
+
+            if (!equipmentId || !description || !requester) { 
+                showToast('Preencha os campos obrigatórios (*)', 'warning'); 
+                setActiveTab('summary');
+                return; 
+            }
+
+            if (targetStatus === MaintenanceStatus.Executed && userRole === 'gestor') {
+                if (!reportPdf) {
+                    showToast("OBRIGATÓRIO PARA GESTOR: Anexe o Relatório Técnico/OS Digitalizada na aba 'Recursos' para finalizar.", "error");
+                    setActiveTab('resources');
+                    return;
+                }
+            }
+
+            // AUTO-FILL: Se finalizar e não tiver horas, adiciona o usuário atual
+            let finalManHours = [...manHours];
+            if (targetStatus === MaintenanceStatus.Executed && finalManHours.length === 0 && currentUser) {
+                // Calcula duração
+                let autoDuration = 1; // Padrão
+                if (startDateExecution && endDate) {
+                    const start = new Date(startDateExecution);
+                    const end = (endDate) ? new Date(endDate) : new Date();
+                    const diff = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
+                    if (diff > 0) autoDuration = parseFloat(diff.toFixed(2));
+                }
+                
+                // Tenta achar um nome compatível na lista de mantenedores, senão usa o nome do usuário
+                const maintainerName = maintainers.find(m => m.toUpperCase().includes(currentUser.username.toUpperCase())) || currentUser.name;
+                
+                finalManHours.push({
+                    maintainer: maintainerName,
+                    hours: autoDuration
+                });
+                
+                showToast(`Horas atribuídas automaticamente para: ${maintainerName} (${autoDuration}h)`, 'info');
+            }
+
+            let finalPurchaseRequests = [...purchaseRequests];
+            let autoResolvedNote = '';
+
+            if (targetStatus === MaintenanceStatus.Executed) {
+                const pendingReqs = finalPurchaseRequests.filter(r => r.status !== 'Entregue');
+                if (pendingReqs.length > 0) {
+                    finalPurchaseRequests = finalPurchaseRequests.map(r => ({
+                        ...r,
+                        status: 'Entregue',
+                        arrivalDate: new Date().toISOString()
+                    }));
+                    autoResolvedNote = `\n[SISTEMA]: ${pendingReqs.length} item(ns) de compra baixados automaticamente na conclusão.`;
+                }
+            }
+
+            const notes = (runtimeHours ? `Horímetro: ${runtimeHours}h\n` : '') + 
+                          (leadTimeAlert ? '[ALERTA 30 DIAS ATIVADO]\n' : '') +
+                          autoResolvedNote;
+            
+            const order: any = {
+                id, equipmentId, type, status: targetStatus,
+                equipments: selectedEquipment || null,
+                scheduledDate: scheduledDate, 
+                startDateExecution: startDateExecution || undefined, 
+                endDate: targetStatus === MaintenanceStatus.Executed ? (endDate || new Date().toISOString().slice(0, 16)) : undefined,
+                description, checklist,
+                rootCause: isCorrective ? rootCause : undefined,
+                correctiveCategory: isCorrective ? correctiveCategory : undefined,
+                machineStopped,
+                isApproved, 
+                requester,
+                manHours: finalManHours,
+                materialsUsed,
+                purchaseRequests: finalPurchaseRequests,
+                observations,
+                miscNotes: notes.trim(),
+                reportPdfBase64: reportPdf || undefined,
+            };
+
+            const success = await handleUnifiedSave(order);
+            if (success) {
+                onClose();
+            }
+        } finally {
             setIsSaving(false);
+        }
+    };
+
+    const handleDeleteClick = () => {
+        if (!existingOrder) return;
+        if (userRole === 'admin') {
+            requestAdminPassword(() => setIsDeleteModalOpen(true));
+        } else {
+            showToast("Ação não permitida. Apenas Administradores podem excluir registros.", "error");
+        }
+    };
+
+    const handleConfirmDelete = async () => {
+        if (!existingOrder) return;
+        const success = await handleWorkOrderDelete(existingOrder.id);
+        if (success) {
+            setIsDeleteModalOpen(false);
             onClose();
         }
     };
 
+    const navSteps = [
+        { id: 'summary', label: '1. Dados Gerais', icon: <DocumentTextIcon className="w-4 h-4" />, colorClass: 'border-blue-600 text-blue-700 bg-blue-50' },
+        { id: 'checklist', label: '2. Checklist', icon: <ClipboardListIcon className="w-4 h-4" />, colorClass: 'border-purple-600 text-purple-700 bg-purple-50' },
+        { id: 'resources', label: '3. Recursos (Anexos)', icon: <WrenchIcon className="w-4 h-4" />, colorClass: 'border-emerald-600 text-emerald-700 bg-emerald-50' },
+        { id: 'approval', label: '4. Aprovação', icon: <ShieldCheckIcon className="w-4 h-4" />, colorClass: 'border-orange-500 text-orange-700 bg-orange-50' },
+    ];
+
+    if (!isOpen) return null;
+
     return (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
-            <form onSubmit={handleSubmit} className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
-                <div className="flex justify-between items-center p-6 border-b border-gray-200 dark:border-gray-700">
-                    <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-                        {existingOrder ? `Editar O.S. #${order.id}` : 'Nova Ordem de Serviço'}
-                    </h2>
-                    <button type="button" onClick={onClose} className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-white"><CloseIcon className="w-6 h-6" /></button>
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+            <div className="bg-white dark:bg-gray-900 w-full max-w-5xl rounded-[2rem] shadow-2xl overflow-hidden flex flex-col max-h-[95vh] animate-fade-in border border-slate-200">
+                
+                {/* Header */}
+                <div className={`px-8 py-5 text-white flex justify-between items-center transition-colors ${machineStopped ? 'bg-rose-700' : isCorrective ? 'bg-slate-800' : 'bg-blue-700'}`}>
+                    <div className="flex items-center gap-4">
+                        <div className="p-3 bg-white/20 rounded-xl">
+                           {machineStopped ? <ExclamationTriangleIcon className="w-6 h-6 animate-pulse"/> : <ClipboardListIcon className="w-6 h-6" />}
+                        </div>
+                        <div>
+                            <span className="text-[10px] font-black uppercase tracking-widest opacity-80">Protocolo de Manutenção</span>
+                            <div className="flex items-center gap-2">
+                                <span className="text-xl font-black">{id ? `#${id}` : 'NOVA (Automático)'}</span>
+                                <span className="text-white/50">|</span>
+                                <span className="text-lg font-bold">{displayName}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full"><CloseIcon className="w-6 h-6"/></button>
                 </div>
 
-                <div className="p-6 space-y-6 overflow-y-auto custom-scrollbar">
-                    {/* Basic Info */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Equipamento</label>
-                            <select value={order.equipmentId} onChange={e => handleFieldChange('equipmentId', e.target.value)} required className="mt-1 w-full form-input">
-                                <option value="">Selecione...</option>
-                                <option value="ATIVO_PREDIAL_GENERICO">ATIVO PREDIAL / GENÉRICO</option>
-                                {equipmentData.map(e => <option key={e.id} value={e.id}>{e.id} - {e.name}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Localização</label>
-                            <input type="text" value={locationDisplay} disabled className="mt-1 w-full form-input bg-gray-100 dark:bg-gray-700" />
-                        </div>
-                    </div>
+                {/* Tabs Navigation */}
+                <div className="flex bg-white border-b border-slate-200 shadow-sm">
+                    {navSteps.map((step) => {
+                        const isActive = activeTab === step.id;
+                        return (
+                            <button
+                                key={step.id}
+                                onClick={() => setActiveTab(step.id as Tab)}
+                                className={`flex-1 flex items-center justify-center gap-2 py-4 px-2 text-xs font-black uppercase border-b-4 transition-all duration-200 
+                                    ${isActive ? step.colorClass : 'border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-50'}`}
+                            >
+                                <span className={`${isActive ? '' : 'opacity-70 grayscale'}`}>{step.icon}</span>
+                                <span>{step.label}</span>
+                            </button>
+                        );
+                    })}
+                </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Tipo</label>
-                            <select value={order.type} onChange={e => handleFieldChange('type', e.target.value)} className="mt-1 w-full form-input">
-                                {Object.values(MaintenanceType).map(t => <option key={t} value={t}>{t}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
-                            <select value={order.status} onChange={e => handleFieldChange('status', e.target.value)} className="mt-1 w-full form-input">
-                                {Object.values(MaintenanceStatus).map(s => <option key={s} value={s}>{s}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Data Programada</label>
-                            <input type="date" value={order.scheduledDate ? order.scheduledDate.slice(0, 10) : ''} onChange={e => handleFieldChange('scheduledDate', e.target.value)} required className="mt-1 w-full form-input" />
-                        </div>
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Descrição</label>
-                        <input type="text" value={order.description} onChange={e => handleFieldChange('description', e.target.value)} required className="mt-1 w-full form-input" placeholder="Descreva o serviço a ser realizado" />
-                    </div>
-
-                    {/* Checklist Section */}
-                    <div className="bg-gray-50 dark:bg-gray-700/30 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-                        <div className="flex justify-between items-center mb-2">
-                            <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 flex items-center gap-2">
-                                <ClipboardListIcon className="w-4 h-4"/> Checklist de Tarefas
-                            </h3>
-                        </div>
-                        <div className="flex gap-2 mb-2">
-                            <input 
-                                type="text" 
-                                value={newTaskAction}
-                                onChange={(e) => setNewTaskAction(e.target.value)}
-                                placeholder="Adicionar nova tarefa..."
-                                className="flex-1 form-input text-sm"
-                                onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddTask())}
-                            />
-                            <button type="button" onClick={handleAddTask} className="p-2 bg-blue-100 text-blue-600 rounded hover:bg-blue-200"><PlusIcon className="w-5 h-5" /></button>
-                        </div>
-                        <div className="space-y-2 max-h-40 overflow-y-auto">
-                            {(order.checklist || []).map((item, index) => (
-                                <div key={index} className="flex items-center gap-2 p-2 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-600">
-                                    <input 
-                                        type="checkbox" 
-                                        checked={item.checked} 
-                                        onChange={() => {
-                                            const newChecklist = [...(order.checklist || [])];
-                                            newChecklist[index].checked = !newChecklist[index].checked;
-                                            handleFieldChange('checklist', newChecklist);
-                                        }}
-                                        className="w-4 h-4 text-blue-600 rounded" 
-                                    />
-                                    <span className={`flex-1 text-sm ${item.checked ? 'line-through text-gray-400' : 'text-gray-700 dark:text-gray-300'}`}>{item.action}</span>
-                                    <button type="button" onClick={() => handleRemoveTask(index)} className="text-gray-400 hover:text-red-500"><DeleteIcon className="w-4 h-4" /></button>
+                <div className="flex-1 overflow-y-auto p-8 bg-white">
+                    {activeTab === 'summary' && (
+                        <div className="space-y-6">
+                             <div className={`p-4 rounded-xl border-2 flex items-center justify-between ${machineStopped ? 'bg-rose-50 border-rose-200' : 'bg-white border-slate-100'}`}>
+                                <span className="text-[10px] font-black uppercase text-slate-500">Máquina Parada (Urgência Crítica)?</span>
+                                <input type="checkbox" checked={machineStopped} onChange={() => setMachineStopped(!machineStopped)} className="w-6 h-6 text-rose-600 rounded" />
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                <div className="space-y-4">
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="text-[10px] font-black uppercase text-slate-400">Ativo *</label>
+                                            <select 
+                                                value={equipmentId} 
+                                                onChange={e => setEquipmentId(e.target.value)} 
+                                                disabled={!!id} 
+                                                className="w-full form-input h-12 font-bold bg-slate-50"
+                                            >
+                                                <option value="">Selecione...</option>
+                                                {equipmentData.map(eq => <option key={eq.id} value={eq.id}>{eq.id} - {eq.name}</option>)}
+                                                <option value="ATIVO_PREDIAL_GENERICO">Outros / Predial</option>
+                                            </select>
+                                        </div>
+                                         <div>
+                                            <label className="text-[10px] font-black uppercase text-slate-400">Localização</label>
+                                            <input type="text" value={locationDisplay} readOnly className="w-full form-input h-12 font-bold bg-slate-50" />
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="text-[10px] font-black uppercase text-slate-400">Tipo de Manutenção</label>
+                                            {isAdmin ? (
+                                                <select value={type} onChange={e => setType(e.target.value as MaintenanceType)} className="w-full form-input h-12 font-bold">
+                                                    {Object.values(MaintenanceType).map(t => <option key={t} value={t}>{t}</option>)}
+                                                </select>
+                                            ) : (
+                                                <input type="text" value={type} readOnly className="w-full form-input h-12 font-bold bg-slate-100 text-slate-500" title="Apenas administradores podem criar Preventivas/Preditivas." />
+                                            )}
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-black uppercase text-slate-400">Data Programada</label>
+                                            <input type="date" value={scheduledDate} onChange={e => setScheduledDate(e.target.value)} className="w-full form-input h-12 font-bold" />
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="text-[10px] font-black uppercase text-slate-400">Horímetro Atual (h)</label>
+                                            <input type="number" value={runtimeHours} onChange={e => setRuntimeHours(e.target.value)} placeholder="Ex: 69" className="w-full form-input h-12 font-black text-blue-600" />
+                                        </div>
+                                        <div className="flex items-center gap-2 mt-6">
+                                            <input type="checkbox" checked={leadTimeAlert} onChange={e => setLeadTimeAlert(e.target.checked)} className="w-5 h-5 text-blue-600 rounded" />
+                                            <span className="text-[9px] font-black uppercase text-slate-500">Aviso 30 dias antes</span>
+                                        </div>
+                                    </div>
                                 </div>
-                            ))}
-                            {(order.checklist || []).length === 0 && <p className="text-xs text-gray-400 text-center py-2">Nenhuma tarefa.</p>}
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="text-[10px] font-black uppercase text-slate-400">Descrição Técnica (O que foi feito?) *</label>
+                                        <textarea value={description} onChange={e => setDescription(e.target.value)} className="w-full h-32 form-input font-bold" placeholder="Ex: Troca de óleo diesel, filtros..."></textarea>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="text-[10px] font-black uppercase text-slate-400">Solicitante *</label>
+                                            <select value={requester} onChange={e => setRequester(e.target.value)} className="w-full form-input h-12">
+                                                <option value="">Selecione...</option>
+                                                {requesters.map(r => <option key={r} value={r}>{r}</option>)}
+                                            </select>
+                                        </div>
+                                        {isCorrective && (
+                                            <div>
+                                                <label className="text-[10px] font-black uppercase text-slate-400">Categoria da Falha</label>
+                                                <select value={correctiveCategory || ''} onChange={e => setCorrectiveCategory(e.target.value as CorrectiveCategory)} className="w-full form-input h-12 font-bold">
+                                                    <option value="">Selecione a Categoria</option>
+                                                    {Object.values(CorrectiveCategory).map(c => <option key={c} value={c}>{c}</option>)}
+                                                </select>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                    </div>
+                    )}
+                    
+                    {activeTab === 'checklist' && (
+                        <div className="space-y-4 animate-fade-in">
+                            <h3 className="text-[10px] font-black uppercase text-slate-400">Roteiro de Execução</h3>
+                            {checklist.length > 0 ? (
+                                <div className="space-y-3">
+                                    {checklist.map((item, index) => {
+                                        // LOGICA DE DESTAQUE INTELIGENTE
+                                        const isAlert = item.action.toUpperCase().includes('ALERTA') || item.action.toUpperCase().includes('TERCEIRO') || item.action.toUpperCase().includes('SEGURANÇA');
+                                        
+                                        return (
+                                            <label key={index} className={`flex items-start p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                                                isAlert 
+                                                ? 'bg-amber-50 border-amber-200 hover:border-amber-300' 
+                                                : 'bg-slate-50 border-slate-100 hover:border-blue-200'
+                                            } has-[:checked]:bg-emerald-50 has-[:checked]:border-emerald-200`}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={item.checked || false}
+                                                    onChange={() => handleChecklistItemToggle(index)}
+                                                    className={`w-5 h-5 mt-0.5 rounded flex-shrink-0 ${isAlert ? 'text-amber-600 focus:ring-amber-500' : 'text-blue-600 focus:ring-blue-500'}`}
+                                                />
+                                                <div className="ml-4 flex-1">
+                                                    <div className="flex items-center gap-2">
+                                                        {isAlert && <BellAlertIcon className="w-4 h-4 text-amber-600 animate-pulse" />}
+                                                        <span className={`text-sm font-bold ${item.checked ? 'text-slate-800 line-through opacity-70' : (isAlert ? 'text-amber-800 uppercase' : 'text-slate-700')}`}>
+                                                            {item.action}
+                                                        </span>
+                                                    </div>
+                                                    {item.materials && (
+                                                        <p className="text-xs text-slate-400 mt-1">
+                                                            <span className="font-bold">Material:</span> {item.materials}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            </label>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <div className="text-center py-12 border-2 border-dashed border-slate-100 rounded-2xl">
+                                    <ClipboardListIcon className="w-8 h-8 mx-auto text-slate-300 mb-2" />
+                                    <p className="text-slate-400 font-bold">Nenhum checklist definido para esta O.S.</p>
+                                    <p className="text-xs text-slate-400 mt-1">Checklists são herdados de Planos de Manutenção Preventiva.</p>
+                                </div>
+                            )}
+                        </div>
+                    )}
 
+                    {activeTab === 'resources' && (
+                        <div className="space-y-6 animate-fade-in">
+                             <div className="bg-blue-50 p-6 rounded-2xl border border-blue-200">
+                                <h3 className="text-[10px] font-black uppercase text-blue-700 mb-4 flex items-center gap-2">
+                                    <UploadIcon className="w-4 h-4"/> Documentação Anexa (Obrigatório para Gestor)
+                                </h3>
+                                <div className="flex items-center gap-4">
+                                    <label className="flex-1 cursor-pointer group">
+                                        <div className="flex items-center justify-center w-full h-12 border-2 border-dashed border-blue-300 rounded-xl bg-white group-hover:bg-blue-50 transition-colors">
+                                            <span className="text-xs font-bold text-blue-500 uppercase flex items-center gap-2">
+                                                <UploadIcon className="w-4 h-4"/> {pdfFileName || 'Selecionar PDF Assinado...'}
+                                            </span>
+                                        </div>
+                                        <input type="file" accept="application/pdf" className="hidden" onChange={handleFileChange} />
+                                    </label>
+                                    {reportPdf && <CheckCircleIcon className="w-6 h-6 text-emerald-500" />}
+                                </div>
+                                <p className="text-[9px] text-blue-400 mt-2 font-bold uppercase">* O arquivo deve conter a assinatura do técnico e do responsável da área.</p>
+                             </div>
+
+                             <div className="bg-orange-50 p-6 rounded-2xl border border-orange-200">
+                                <h3 className="text-[10px] font-black uppercase text-orange-700 mb-4 flex items-center gap-2">
+                                    <ShoppingCartIcon className="w-4 h-4"/> Solicitação de Compras (Externo)
+                                </h3>
+                                {purchaseRequests.map((req, idx) => (
+                                    <div key={idx} className="flex justify-between items-center bg-white p-3 rounded-lg border border-orange-100 mb-2">
+                                        <span className="text-xs font-bold text-slate-700">{req.quantity}x {req.itemDescription}</span>
+                                        <div className="flex items-center gap-2">
+                                            <select 
+                                                value={req.status} 
+                                                onChange={(e) => {
+                                                    const newReqs = [...purchaseRequests];
+                                                    newReqs[idx].status = e.target.value as any;
+                                                    setPurchaseRequests(newReqs);
+                                                }}
+                                                className="text-[9px] font-black uppercase px-2 py-1 rounded border-none bg-orange-100 text-orange-700"
+                                            >
+                                                <option value="Pendente">Pendente</option>
+                                                <option value="Comprado">Comprado</option>
+                                                <option value="Entregue">Entregue</option>
+                                            </select>
+                                            <button onClick={() => setPurchaseRequests(purchaseRequests.filter((_, i) => i !== idx))} className="text-rose-400 hover:text-rose-600"><DeleteIcon className="w-4 h-4"/></button>
+                                        </div>
+                                    </div>
+                                ))}
+                                <div className="flex gap-2 mt-3">
+                                    <input type="text" placeholder="Item" value={newPurchaseItem} onChange={e => setNewPurchaseItem(e.target.value)} className="flex-1 form-input h-10 text-xs" />
+                                    <input type="number" value={newPurchaseQty} onChange={e => setNewPurchaseQty(Number(e.target.value))} className="w-20 form-input h-10 text-xs" />
+                                    <button type="button" onClick={handleAddPurchaseRequest} className="px-4 bg-orange-600 text-white rounded-lg font-bold text-xs uppercase hover:bg-orange-700">Adicionar</button>
+                                </div>
+                             </div>
+
+                            <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200">
+                                <h3 className="text-[10px] font-black uppercase text-slate-400 mb-4">Peças Utilizadas (Consumo Automático)</h3>
+                                {materialsUsed.map((mat, idx) => (
+                                    <div key={idx} className="flex gap-2 mb-2">
+                                        <select value={mat.partId} onChange={e => {
+                                            const newL = [...materialsUsed];
+                                            newL[idx].partId = e.target.value;
+                                            setMaterialsUsed(newL);
+                                        }} className="flex-1 form-input text-xs font-bold">
+                                            <option value="">Selecione a Peça...</option>
+                                            {inventoryData.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                        </select>
+                                        <input type="number" value={mat.quantity} onChange={e => {
+                                            const newL = [...materialsUsed];
+                                            newL[idx].quantity = Number(e.target.value);
+                                            setMaterialsUsed(newL);
+                                        }} className="w-24 form-input text-xs font-bold" />
+                                        <button onClick={() => setMaterialsUsed(materialsUsed.filter((_, i) => i !== idx))} className="p-2 text-rose-500"><DeleteIcon /></button>
+                                    </div>
+                                ))}
+                                <button onClick={() => setMaterialsUsed([...materialsUsed, { partId: '', quantity: 1 }])} className="text-[10px] font-black text-blue-600 uppercase flex items-center gap-1 mt-2">
+                                    <PlusIcon className="w-3 h-3"/> Adicionar Item
+                                </button>
+                            </div>
+
+                            <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200">
+                                <h3 className="text-[10px] font-black uppercase text-slate-400 mb-4">Horas-Homem (Apontamento)</h3>
+                                {manHours.map((mh, idx) => (
+                                    <div key={idx} className="flex gap-2 mb-2">
+                                        <select value={mh.maintainer} onChange={e => {
+                                            const newL = [...manHours];
+                                            newL[idx].maintainer = e.target.value;
+                                            setManHours(newL);
+                                        }} className="flex-1 form-input text-xs font-bold">
+                                            <option value="">Selecione o Técnico...</option>
+                                            {maintainers.map(m => <option key={m} value={m}>{m}</option>)}
+                                        </select>
+                                        <input type="number" value={mh.hours} onChange={e => {
+                                            const newL = [...manHours];
+                                            newL[idx].hours = Number(e.target.value);
+                                            setManHours(newL);
+                                        }} className="w-24 form-input text-xs font-bold" placeholder="HH" />
+                                        <button onClick={() => setManHours(manHours.filter((_, i) => i !== idx))} className="p-2 text-rose-500"><DeleteIcon /></button>
+                                    </div>
+                                ))}
+                                <button onClick={() => setManHours([...manHours, { maintainer: '', hours: 1 }])} className="text-[10px] font-black text-blue-600 uppercase flex items-center gap-1 mt-2">
+                                    <PlusIcon className="w-3 h-3"/> Adicionar Apontamento
+                                </button>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="text-[10px] font-black uppercase text-slate-400">Status Atual</label>
+                                    <select value={status} onChange={e => setStatus(e.target.value as MaintenanceStatus)} className="w-full form-input h-12">
+                                        {Object.values(MaintenanceStatus).map(s => <option key={s} value={s}>{s}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-black uppercase text-slate-400">Data de Término Real</label>
+                                    <input type="datetime-local" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full form-input h-12" />
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'approval' && (
+                        <div className="space-y-6 animate-fade-in">
+                            <div>
+                                <label className="text-[10px] font-black uppercase text-slate-400 mb-1 block">Observações do Gestor / Pendências</label>
+                                <textarea 
+                                    value={observations} 
+                                    onChange={e => setObservations(e.target.value)} 
+                                    className="w-full h-32 form-input font-bold"
+                                    placeholder="Registre aqui feedbacks de checklist ou pendências para diretoria..."
+                                ></textarea>
+                            </div>
+                            <div className="bg-orange-50 p-6 rounded-2xl border border-orange-100">
+                                <h3 className="text-sm font-black uppercase text-orange-700 mb-4 flex items-center gap-2">
+                                    <ShieldCheckIcon className="w-5 h-5"/> Aprovação do Gestor
+                                </h3>
+                                <div className="space-y-4">
+                                    <div className="flex items-center gap-4">
+                                        <input 
+                                            type="checkbox" 
+                                            id="approved" 
+                                            checked={isApproved} 
+                                            onChange={(e) => setIsApproved(e.target.checked)}
+                                            className="w-6 h-6 text-orange-600 rounded border-gray-300 focus:ring-orange-500"
+                                        />
+                                        <label htmlFor="approved" className="text-sm font-bold text-gray-700">
+                                            Atesto que o serviço foi realizado conforme os padrões de qualidade e segurança.
+                                        </label>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                                        <div>
+                                            <label className="text-[10px] font-black uppercase text-slate-400">Início Real da Execução</label>
+                                            <input 
+                                                type="datetime-local" 
+                                                value={startDateExecution} 
+                                                onChange={e => setStartDateExecution(e.target.value)} 
+                                                className="w-full form-input h-12 font-bold" 
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-black uppercase text-slate-400">Fim Real da Execução</label>
+                                            <input 
+                                                type="datetime-local" 
+                                                value={endDate} 
+                                                onChange={e => setEndDate(e.target.value)} 
+                                                className="w-full form-input h-12 font-bold" 
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                <div className="p-6 border-t border-slate-200 bg-slate-50 flex justify-between items-center">
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Observações</label>
-                        <textarea value={order.observations || ''} onChange={e => handleFieldChange('observations', e.target.value)} rows={3} className="mt-1 w-full form-input"></textarea>
+                        {existingOrder && canDelete && (
+                            <button 
+                                onClick={handleDeleteClick} 
+                                className="px-4 py-3 text-rose-600 hover:bg-rose-50 rounded-xl font-bold text-xs uppercase flex items-center gap-2 transition-colors"
+                            >
+                                <DeleteIcon className="w-4 h-4"/> Excluir O.S.
+                            </button>
+                        )}
+                    </div>
+
+                    <div className="flex gap-4">
+                        <button onClick={onClose} disabled={isSaving} className="px-6 py-3 font-bold text-slate-400 uppercase text-xs tracking-widest">Cancelar</button>
+                        <button onClick={() => handleSave()} disabled={isSaving} className="w-48 flex items-center justify-center px-8 py-3 bg-blue-600 text-white rounded-xl font-black text-xs uppercase shadow-lg hover:bg-blue-700 disabled:bg-blue-400">
+                            {isSaving ? <ArrowPathIcon className="w-4 h-4 animate-spin"/> : 'Salvar Alterações'}
+                        </button>
+                        <button onClick={() => handleSave(MaintenanceStatus.Executed)} disabled={isSaving} className="w-56 flex items-center justify-center gap-2 px-10 py-3 bg-emerald-600 text-white rounded-xl font-black text-xs uppercase shadow-lg hover:bg-emerald-700 disabled:bg-emerald-400">
+                            {isSaving ? <ArrowPathIcon className="w-4 h-4 animate-spin"/> : <CheckCircleIcon className="w-4 h-4" />}
+                            Finalizar Manutenção
+                        </button>
                     </div>
                 </div>
+            </div>
 
-                <div className="flex justify-end p-6 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 rounded-b-lg gap-3">
-                    <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-semibold text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200">Cancelar</button>
-                    <button type="submit" disabled={isSaving} className="px-6 py-2 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
-                        {isSaving ? 'Salvando...' : <><CheckCircleIcon className="w-4 h-4"/> Salvar O.S.</>}
-                    </button>
-                </div>
-            </form>
+            {isDeleteModalOpen && existingOrder && (
+                <ConfirmationModal 
+                    isOpen={isDeleteModalOpen}
+                    onClose={() => setIsDeleteModalOpen(false)}
+                    onConfirm={handleConfirmDelete}
+                    title="Excluir Ordem de Serviço"
+                    message={`Tem certeza que deseja mover a O.S. #${existingOrder.id} para a lixeira?`}
+                />
+            )}
         </div>
     );
 };
-
-// Simple Icon component for the checklist section if not imported
-const ClipboardListIcon = (props: any) => (
-  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z" />
-  </svg>
-);
