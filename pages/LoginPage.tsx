@@ -146,7 +146,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                     <ShieldCheckIcon className="w-4 h-4" />
                     <span className="text-[10px] font-black uppercase tracking-widest">Conformidade IATF 16949</span>
                 </div>
-                <p className="text-[9px] text-slate-400 mt-2">© {new Date().getFullYear()} Polifluor • Soluções em Polímeros</p>
+                <p className="text-[9px] text-slate-400 mt-2">© {new Date().getFullYear()} Polifluor • Soluções em Fluorpolímeros</p>
             </div>
         </div>
       </div>
